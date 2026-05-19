@@ -7,7 +7,8 @@ function App() {
   const canvasRef = useRef(null);
   const animationRef = useRef();
   const frameCounter = useRef(0);
-  const faceBoxRef = useRef(null); // hanya diupdate saat deteksi berhasil
+  const faceBoxRef = useRef(null);
+  const selectedEffectRef = useRef("none");
 
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [selectedEffect, setSelectedEffect] = useState("none");
@@ -19,6 +20,11 @@ function App() {
   const [hatLoaded, setHatLoaded] = useState(false);
   const [hatDimensions, setHatDimensions] = useState({ width: 340, height: 180 });
 
+  // Sync ref dengan state selectedEffect
+  useEffect(() => {
+    selectedEffectRef.current = selectedEffect;
+  }, [selectedEffect]);
+
   const templates = [
     { id: 1, name: "White", color: "#ffffff", preview: "bg-white" },
     { id: 2, name: "Black", color: "#000000", preview: "bg-black" },
@@ -27,6 +33,7 @@ function App() {
 
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  // Load face detection model
   useEffect(() => {
     const loadModels = async () => {
       const MODEL_URL = "https://justadudewhohacks.github.io/face-api.js/models";
@@ -37,6 +44,7 @@ function App() {
     loadModels();
   }, []);
 
+  // Load gambar topi
   useEffect(() => {
     const hat = new Image();
     hat.onload = () => {
@@ -57,7 +65,7 @@ function App() {
       new faceapi.TinyFaceDetectorOptions()
     );
     if (detection) {
-      faceBoxRef.current = detection.box; // update hanya jika berhasil
+      faceBoxRef.current = detection.box;
     }
     // jika gagal, biarkan faceBoxRef.current tetap (tidak diubah)
   };
@@ -83,8 +91,8 @@ function App() {
     ctx.save();
     ctx.drawImage(webcamRef.current.video, 0, 0, width, height);
 
-    // Gambar topi jika ada faceBox terakhir
-    if (selectedEffect === "cowboy" && modelsLoaded && hatLoaded && faceBoxRef.current) {
+    // Gunakan selectedEffectRef.current untuk nilai terbaru tanpa restart
+    if (selectedEffectRef.current === "cowboy" && modelsLoaded && hatLoaded && faceBoxRef.current) {
       const faceBox = faceBoxRef.current;
       const faceWidth = faceBox.width;
       const hatWidth = faceWidth * 1.5;
@@ -149,6 +157,7 @@ function App() {
     ctx.restore();
   };
 
+  // LIVE PREVIEW – tanpa restart saat selectedEffect berubah
   useEffect(() => {
     if (!selectedTemplate || !webcamRef.current || !canvasRef.current) return;
     const video = webcamRef.current.video;
@@ -169,7 +178,7 @@ function App() {
           lastHeight = videoHeight;
         }
 
-        if (modelsLoaded && frameCounter.current % 3 === 0) { // deteksi setiap 3 frame untuk performa
+        if (modelsLoaded && frameCounter.current % 3 === 0) {
           await detectFace();
         }
         frameCounter.current++;
@@ -181,7 +190,7 @@ function App() {
 
     draw();
     return () => cancelAnimationFrame(animationRef.current);
-  }, [selectedTemplate, selectedEffect, modelsLoaded, hatLoaded, hatDimensions]);
+  }, [selectedTemplate, modelsLoaded, hatLoaded, hatDimensions]); // selectedEffect dihapus dari sini!
 
   const captureWithFrame = () => {
     if (!canvasRef.current) return null;
@@ -244,6 +253,7 @@ function App() {
     setStrip(canvas.toDataURL("image/png"));
   };
 
+  // Template selection page
   if (!selectedTemplate) {
     return (
       <div className="min-h-screen bg-zinc-950 text-white px-6 py-10">
