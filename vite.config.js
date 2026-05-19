@@ -7,6 +7,4 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
-
-  base: '/photoboth/',
 })
