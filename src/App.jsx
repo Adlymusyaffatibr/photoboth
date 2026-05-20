@@ -9,9 +9,12 @@ function App() {
   const frameCounter = useRef(0);
   const faceBoxRef = useRef(null);
   const selectedEffectRef = useRef("none");
+  const faceBoxHistory = useRef([]); // untuk smoothing
+  const particlesRef = useRef([]);
 
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [selectedEffect, setSelectedEffect] = useState("none");
+  const [magicEffect, setMagicEffect] = useState(false);
   const [photos, setPhotos] = useState([]);
   const [countdown, setCountdown] = useState(null);
   const [isCapturing, setIsCapturing] = useState(false);
@@ -32,6 +35,25 @@ function App() {
   ];
 
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const createParticles = (type, width, height) => {
+    const particles = [];
+
+    for (let i = 0; i < 15; i++) {
+      particles.push({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        size: Math.random() * 20 + 20,
+        speedX: (Math.random() - 0.5) * 2,
+        speedY: Math.random() * 1 + 0.5,
+        rotation: Math.random() * 360,
+        rotationSpeed: (Math.random() - 0.5) * 2,
+        emoji: type,
+      });
+    }
+
+    return particles;
+  };
 
   // Load face detection model
   useEffect(() => {
@@ -55,19 +77,72 @@ function App() {
     hat.src = "/cowboy-hat.png";
   }, []);
 
+  useEffect(() => {
+    if (!selectedTemplate || !magicEffect) {
+      particlesRef.current = [];
+      return;
+    }
+
+    // jangan bikin ulang kalau sudah ada
+    if (particlesRef.current.length > 0) return;
+
+    let emoji = "✨";
+
+    if (selectedTemplate.name === "Pink") {
+      emoji = "🦋";
+    }
+
+    if (selectedTemplate.name === "Black") {
+      emoji = "🦇";
+    }
+
+    if (selectedTemplate.name === "White") {
+      emoji = "☁️";
+    }
+
+    particlesRef.current = createParticles(emoji, 700, 700);
+  }, [selectedTemplate, magicEffect]);
+
+  // Fungsi untuk menghaluskan bounding box
+  const getSmoothedFaceBox = (newBox) => {
+    const historySize = 5;
+    // tambahkan box baru ke history
+    faceBoxHistory.current.push(newBox);
+    if (faceBoxHistory.current.length > historySize) {
+      faceBoxHistory.current.shift();
+    }
+    // hitung rata-rata
+    const sum = faceBoxHistory.current.reduce(
+      (acc, box) => {
+        acc.x += box.x;
+        acc.y += box.y;
+        acc.width += box.width;
+        acc.height += box.height;
+        return acc;
+      },
+      { x: 0, y: 0, width: 0, height: 0 },
+    );
+    const len = faceBoxHistory.current.length;
+    return {
+      x: sum.x / len,
+      y: sum.y / len,
+      width: sum.width / len,
+      height: sum.height / len,
+    };
+  };
+
   const detectFace = async () => {
     if (!webcamRef.current || !webcamRef.current.video) return;
     const video = webcamRef.current.video;
     if (video.readyState !== 4) return;
 
-    const detection = await faceapi.detectSingleFace(
-      video,
-      new faceapi.TinyFaceDetectorOptions()
-    );
+    const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions());
     if (detection) {
-      faceBoxRef.current = detection.box;
+      const rawBox = detection.box;
+      const smoothedBox = getSmoothedFaceBox(rawBox);
+      faceBoxRef.current = smoothedBox;
     }
-    // jika gagal, biarkan faceBoxRef.current tetap (tidak diubah)
+    // Jika tidak ada deteksi, biarkan faceBoxRef.current tetap (tidak diubah)
   };
 
   const cowboyHat = new Image();
@@ -75,34 +150,62 @@ function App() {
 
   const drawFrameOnPhoto = (ctx, width, height, templateName) => {
     const isDark = templateName === "Black";
-    const frameColor =
-      templateName === "Pink"
-        ? "#ff4fa3"
-        : templateName === "Black"
-        ? "#ffffff"
-        : "#d9d9d9";
-    const accentColor =
-      templateName === "Pink"
-        ? "#ff1493"
-        : templateName === "Black"
-        ? "#888888"
-        : "#bbbbbb";
+    const frameColor = templateName === "Pink" ? "#ff4fa3" : templateName === "Black" ? "#ffffff" : "#d9d9d9";
+    const accentColor = templateName === "Pink" ? "#ff1493" : templateName === "Black" ? "#888888" : "#bbbbbb";
 
     ctx.save();
     ctx.drawImage(webcamRef.current.video, 0, 0, width, height);
 
-    // Gunakan selectedEffectRef.current untuk nilai terbaru tanpa restart
+    // MAGIC PARTICLES
+    if (magicEffect) {
+      particlesRef.current.forEach((p) => {
+        p.x += p.speedX;
+        p.y += p.speedY;
+        p.rotation += p.rotationSpeed;
+
+        // reset kalau keluar layar
+        if (p.y > height + 50) {
+          p.y = -50;
+          p.x = Math.random() * width;
+        }
+
+        if (p.x > width + 50) p.x = -50;
+        if (p.x < -50) p.x = width + 50;
+
+        ctx.save();
+
+        ctx.translate(p.x, p.y);
+        ctx.rotate((p.rotation * Math.PI) / 180);
+
+        ctx.font = `${p.size}px Arial`;
+        ctx.globalAlpha = 0.8;
+
+        ctx.fillText(p.emoji, 0, 0);
+
+        ctx.restore();
+      });
+
+      ctx.globalAlpha = 1;
+    }
+
+    // Gambar efek topi koboy dengan posisi yang stabil (hasil smoothing)
     if (selectedEffectRef.current === "cowboy" && modelsLoaded && hatLoaded && faceBoxRef.current) {
       const faceBox = faceBoxRef.current;
       const faceWidth = faceBox.width;
       const hatWidth = faceWidth * 1.5;
       const hatHeight = hatWidth * (hatDimensions.height / hatDimensions.width);
       const hatX = faceBox.x + faceBox.width / 2 - hatWidth / 2;
-      const hatY = faceBox.y - hatHeight * 0.7;
+
+      // overlapFactor: 0.15 agar topi tidak terlalu nutupi dahi
+      const overlapFactor = 0.1;
+      const hatY = faceBox.y - hatHeight * (1 - overlapFactor);
+
       ctx.drawImage(cowboyHat, hatX, hatY, hatWidth, hatHeight);
     }
 
-    // Borders
+    // Borders, banner, ornaments (sama seperti kode asli)
+    // ... (kode dari sini sampai akhir sama persis)
+
     ctx.strokeStyle = frameColor;
     ctx.lineWidth = 20;
     ctx.strokeRect(10, 10, width - 20, height - 20);
@@ -157,7 +260,7 @@ function App() {
     ctx.restore();
   };
 
-  // LIVE PREVIEW – tanpa restart saat selectedEffect berubah
+  // LIVE PREVIEW – frekuensi deteksi lebih stabil (setiap 3 frame masih ok)
   useEffect(() => {
     if (!selectedTemplate || !webcamRef.current || !canvasRef.current) return;
     const video = webcamRef.current.video;
@@ -190,7 +293,7 @@ function App() {
 
     draw();
     return () => cancelAnimationFrame(animationRef.current);
-  }, [selectedTemplate, modelsLoaded, hatLoaded, hatDimensions]); // selectedEffect dihapus dari sini!
+  }, [selectedTemplate, modelsLoaded, hatLoaded, hatDimensions, magicEffect]);
 
   const captureWithFrame = () => {
     if (!canvasRef.current) return null;
@@ -261,15 +364,9 @@ function App() {
         <p className="text-center text-zinc-400 mt-3">Pilih template favorit kamu 📸</p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-14 max-w-5xl mx-auto">
           {templates.map((template) => (
-            <div
-              key={template.id}
-              onClick={() => setSelectedTemplate(template)}
-              className="bg-zinc-900 rounded-3xl p-5 cursor-pointer hover:scale-105 duration-300 border border-zinc-800"
-            >
+            <div key={template.id} onClick={() => setSelectedTemplate(template)} className="bg-zinc-900 rounded-3xl p-5 cursor-pointer hover:scale-105 duration-300 border border-zinc-800">
               <div className={`h-96 rounded-2xl ${template.preview} flex items-center justify-center`}>
-                <h2 className={`text-4xl font-bold ${template.name === "Black" ? "text-white" : "text-black"}`}>
-                  {template.name}
-                </h2>
+                <h2 className={`text-4xl font-bold ${template.name === "Black" ? "text-white" : "text-black"}`}>{template.name}</h2>
               </div>
             </div>
           ))}
@@ -304,27 +401,20 @@ function App() {
       </div>
 
       <div className="flex gap-3 mt-6 flex-wrap justify-center">
-        <button
-          onClick={() => setSelectedEffect("none")}
-          className={`px-5 py-2 rounded-xl font-semibold duration-300 ${selectedEffect === "none" ? "bg-pink-500 text-white" : "bg-white text-black"}`}
-        >
+        <button onClick={() => setSelectedEffect("none")} className={`px-5 py-2 rounded-xl font-semibold duration-300 ${selectedEffect === "none" ? "bg-pink-500 text-white" : "bg-white text-black"}`}>
           None
         </button>
-        <button
-          onClick={() => setSelectedEffect("cowboy")}
-          className={`px-5 py-2 rounded-xl font-semibold duration-300 ${selectedEffect === "cowboy" ? "bg-pink-500 text-white" : "bg-white text-black"}`}
-        >
+        <button onClick={() => setSelectedEffect("cowboy")} className={`px-5 py-2 rounded-xl font-semibold duration-300 ${selectedEffect === "cowboy" ? "bg-pink-500 text-white" : "bg-white text-black"}`}>
           🤠 Cowboy
+        </button>
+        <button onClick={() => setMagicEffect(!magicEffect)} className={`px-5 py-2 rounded-xl font-semibold duration-300 ${magicEffect ? "bg-purple-500 text-white" : "bg-white text-black"}`}>
+          ✨ Magic
         </button>
       </div>
 
       <div className={`text-7xl font-bold mt-8 h-24 ${isDark ? "text-white" : "text-black"}`}>{countdown}</div>
 
-      <button
-        onClick={startCapture}
-        disabled={isCapturing}
-        className={`mt-6 px-8 py-4 rounded-2xl text-xl hover:scale-105 duration-300 disabled:opacity-50 ${isDark ? "bg-white text-black" : "bg-black text-white"}`}
-      >
+      <button onClick={startCapture} disabled={isCapturing} className={`mt-6 px-8 py-4 rounded-2xl text-xl hover:scale-105 duration-300 disabled:opacity-50 ${isDark ? "bg-white text-black" : "bg-black text-white"}`}>
         {isCapturing ? "Sedang Foto..." : "Start Photobooth"}
       </button>
 
@@ -352,11 +442,7 @@ function App() {
         <div className="mt-14 flex flex-col items-center">
           <h2 className={`text-3xl font-bold mb-6 ${isDark ? "text-white" : "text-black"}`}>Hasil Photostrip</h2>
           <img src={strip} alt="strip" className="w-[280px] rounded-2xl shadow-2xl" />
-          <a
-            href={strip}
-            download="photobooth.png"
-            className={`mt-6 px-8 py-4 rounded-2xl hover:scale-105 duration-300 ${isDark ? "bg-white text-black" : "bg-black text-white"}`}
-          >
+          <a href={strip} download="photobooth.png" className={`mt-6 px-8 py-4 rounded-2xl hover:scale-105 duration-300 ${isDark ? "bg-white text-black" : "bg-black text-white"}`}>
             Download
           </a>
         </div>
