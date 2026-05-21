@@ -84,7 +84,7 @@ function App() {
     }
 
     // jangan bikin ulang kalau sudah ada
-    if (particlesRef.current.length > 0) return;
+    // if (particlesRef.current.length > 0) return;
 
     let emoji = "✨";
 
@@ -149,12 +149,23 @@ function App() {
   cowboyHat.src = "/cowboy-hat.png";
 
   const drawFrameOnPhoto = (ctx, width, height, templateName) => {
+    ctx.clearRect(0, 0, width, height);
     const isDark = templateName === "Black";
     const frameColor = templateName === "Pink" ? "#ff4fa3" : templateName === "Black" ? "#ffffff" : "#d9d9d9";
     const accentColor = templateName === "Pink" ? "#ff1493" : templateName === "Black" ? "#888888" : "#bbbbbb";
 
     ctx.save();
+
+    // reset transform
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+    // flip horizontal supaya balik ke normal
+    ctx.translate(width, 0);
+    ctx.scale(-1, 1);
+
     ctx.drawImage(webcamRef.current.video, 0, 0, width, height);
+
+    ctx.restore();
 
     // MAGIC PARTICLES
     if (magicEffect) {
@@ -194,7 +205,7 @@ function App() {
       const faceWidth = faceBox.width;
       const hatWidth = faceWidth * 1.5;
       const hatHeight = hatWidth * (hatDimensions.height / hatDimensions.width);
-      const hatX = faceBox.x + faceBox.width / 2 - hatWidth / 2;
+      const hatX = width - (faceBox.x + faceBox.width / 2) - hatWidth / 2;
 
       // overlapFactor: 0.15 agar topi tidak terlalu nutupi dahi
       const overlapFactor = 0.1;
@@ -362,11 +373,101 @@ function App() {
       <div className="min-h-screen bg-zinc-950 text-white px-6 py-10">
         <h1 className="text-5xl font-bold text-center">Photobooth</h1>
         <p className="text-center text-zinc-400 mt-3">Pilih template favorit kamu 📸</p>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-14 max-w-5xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-10 mt-14 max-w-6xl mx-auto">
           {templates.map((template) => (
-            <div key={template.id} onClick={() => setSelectedTemplate(template)} className="bg-zinc-900 rounded-3xl p-5 cursor-pointer hover:scale-105 duration-300 border border-zinc-800">
-              <div className={`h-96 rounded-2xl ${template.preview} flex items-center justify-center`}>
-                <h2 className={`text-4xl font-bold ${template.name === "Black" ? "text-white" : "text-black"}`}>{template.name}</h2>
+            <div key={template.id} onClick={() => setSelectedTemplate(template)} className="cursor-pointer hover:scale-105 duration-300">
+              <div
+                className="w-[260px] rounded-[35px] p-5 shadow-2xl border-[6px]"
+                style={{
+                  background: template.color,
+                  borderColor: template.name === "Pink" ? "#ff4fa3" : template.name === "Black" ? "#ffffff" : "#d9d9d9",
+                }}
+              >
+                <div className="flex flex-col gap-4">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div
+                      key={i}
+                      className="relative h-[120px] overflow-hidden rounded-2xl"
+                      style={{
+                        border: template.name === "Pink" ? "4px solid #ff1493" : template.name === "Black" ? "4px solid #ffffff" : "4px solid #d9d9d9",
+                      }}
+                    >
+                      {/* FOTO */}
+                      <img src={`/preview-${template.name.toLowerCase()}.jpg`} alt="" className="w-full h-full object-cover" />
+
+                      {/* OVERLAY BORDER */}
+                      <div
+                        className="absolute inset-2 border-2 border-dashed rounded-xl"
+                        style={{
+                          borderColor: template.name === "Pink" ? "#ff1493" : template.name === "Black" ? "#888888" : "#bbbbbb",
+                        }}
+                      />
+
+                      {/* TOP BANNER */}
+                      <div
+                        className="absolute top-0 left-0 w-full py-1 text-center text-[11px] font-bold"
+                        style={{
+                          background: template.name === "Pink" ? "#ff4fa3" : template.name === "Black" ? "#ffffff" : "#d9d9d9",
+
+                          color: template.name === "Black" ? "#000000" : "#ffffff",
+                        }}
+                      >
+                        {template.name === "Pink" && "🧸 ☁️ LOVE ☁️ 🧸"}
+
+                        {template.name === "Black" && "🖤 DARK NIGHT 🖤"}
+
+                        {template.name === "White" && "☁️ PURE DREAM ☁️"}
+                      </div>
+
+                      {/* BOTTOM BANNER */}
+                      <div
+                        className="absolute bottom-0 left-0 w-full py-1 text-center text-[11px] font-bold"
+                        style={{
+                          background: template.name === "Pink" ? "#ff4fa3" : template.name === "Black" ? "#ffffff" : "#d9d9d9",
+
+                          color: template.name === "Black" ? "#000000" : "#ffffff",
+                        }}
+                      >
+                        {template.name === "Pink" && "☁️ 💖 SWEET DAY 💖 ☁️"}
+
+                        {template.name === "Black" && "🦇 MOONLIGHT 🦇"}
+
+                        {template.name === "White" && "☀️ CLOUDY SKY ☀️"}
+                      </div>
+
+                      {/* ORNAMENT */}
+                      <div className="absolute left-1 top-8 text-sm">
+                        {template.name === "Pink" && "☁️"}
+                        {template.name === "Black" && "🦇"}
+                        {template.name === "White" && "☁️"}
+                      </div>
+
+                      <div className="absolute right-1 top-12 text-sm">
+                        {template.name === "Pink" && "🧸"}
+                        {template.name === "Black" && "🌙"}
+                        {template.name === "White" && "☀️"}
+                      </div>
+
+                      <div className="absolute left-1 bottom-8 text-sm">
+                        {template.name === "Pink" && "💖"}
+                        {template.name === "Black" && "🖤"}
+                        {template.name === "White" && "🤍"}
+                      </div>
+
+                      <div className="absolute right-1 bottom-8 text-sm">
+                        {template.name === "Pink" && "☁️"}
+                        {template.name === "Black" && "🦇"}
+                        {template.name === "White" && "☁️"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-5 text-center">
+                  <h2 className={`text-2xl font-bold ${template.name === "Black" ? "text-white" : "text-black"}`}>{template.name}</h2>
+
+                  <p className={`text-sm mt-1 ${template.name === "Black" ? "text-zinc-300" : "text-zinc-600"}`}>Click to use ✨</p>
+                </div>
               </div>
             </div>
           ))}
@@ -386,7 +487,6 @@ function App() {
       <Webcam
         ref={webcamRef}
         audio={false}
-        mirrored
         style={{
           position: "fixed",
           top: "-100vh",
@@ -396,8 +496,14 @@ function App() {
         }}
       />
 
-      <div className="bg-black p-4 rounded-[30px] shadow-2xl">
+      <div className="relative bg-black p-4 rounded-[30px] shadow-2xl">
         <canvas ref={canvasRef} className="rounded-[20px] w-[700px] max-w-full" />
+
+        {countdown && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className={`text-8xl font-bold drop-shadow-2xl ${isDark ? "text-white" : "text-white"}`}>{countdown}</div>
+          </div>
+        )}
       </div>
 
       <div className="flex gap-3 mt-6 flex-wrap justify-center">
@@ -411,8 +517,6 @@ function App() {
           ✨ Magic
         </button>
       </div>
-
-      <div className={`text-7xl font-bold mt-8 h-24 ${isDark ? "text-white" : "text-black"}`}>{countdown}</div>
 
       <button onClick={startCapture} disabled={isCapturing} className={`mt-6 px-8 py-4 rounded-2xl text-xl hover:scale-105 duration-300 disabled:opacity-50 ${isDark ? "bg-white text-black" : "bg-black text-white"}`}>
         {isCapturing ? "Sedang Foto..." : "Start Photobooth"}
