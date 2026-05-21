@@ -9,8 +9,9 @@ function App() {
   const frameCounter = useRef(0);
   const faceBoxRef = useRef(null);
   const selectedEffectRef = useRef("none");
-  const faceBoxHistory = useRef([]); // untuk smoothing
+  const faceBoxHistory = useRef([]);
   const particlesRef = useRef([]);
+  const lastCanvasSize = useRef({ width: 0, height: 0 });
 
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [selectedEffect, setSelectedEffect] = useState("none");
@@ -22,23 +23,115 @@ function App() {
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const [hatLoaded, setHatLoaded] = useState(false);
   const [hatDimensions, setHatDimensions] = useState({ width: 340, height: 180 });
+  const [templates, setTemplates] = useState([]);
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [newTemplate, setNewTemplate] = useState({
+    name: "",
+    color: "#ffffff",
+    frameColor: "#d9d9d9",
+    accentColor: "#bbbbbb",
+    bannerTop: "CUSTOM TEMPLATE",
+    bannerBottom: "CREATE YOUR OWN",
+    ornamentTL: "✨",
+    ornamentTR: "✨",
+    ornamentBL: "✨",
+    ornamentBR: "✨",
+    magicEmoji: "✨",
+    previewImage: null,
+  });
+
+  // === PERBAIKAN: Reset partikel saat template berganti ===
+  useEffect(() => {
+    particlesRef.current = [];
+    lastCanvasSize.current = { width: 0, height: 0 };
+  }, [selectedTemplate]);
+
+  // === PERBAIKAN: Reset partikel saat magic effect diaktifkan (opsional) ===
+  useEffect(() => {
+    if (magicEffect) {
+      particlesRef.current = [];
+      lastCanvasSize.current = { width: 0, height: 0 };
+    }
+  }, [magicEffect]);
 
   // Sync ref dengan state selectedEffect
   useEffect(() => {
     selectedEffectRef.current = selectedEffect;
   }, [selectedEffect]);
 
-  const templates = [
-    { id: 1, name: "White", color: "#ffffff", preview: "bg-white" },
-    { id: 2, name: "Black", color: "#000000", preview: "bg-black" },
-    { id: 3, name: "Pink", color: "#ffc0cb", preview: "bg-pink-300" },
-  ];
+  // Load template default & kustom dari localStorage
+  useEffect(() => {
+    const defaultTemplates = [
+      {
+        id: "default-white",
+        name: "White",
+        color: "#ffffff",
+        frameColor: "#d9d9d9",
+        accentColor: "#bbbbbb",
+        bannerTop: "☁️ PURE DREAM ☁️",
+        bannerBottom: "☀️ CLOUDY SKY ☀️",
+        ornamentTL: "☁️",
+        ornamentTR: "☀️",
+        ornamentBL: "🤍",
+        ornamentBR: "☁️",
+        magicEmoji: "☁️",
+        isCustom: false,
+        previewImage: null,
+      },
+      {
+        id: "default-black",
+        name: "Black",
+        color: "#000000",
+        frameColor: "#ffffff",
+        accentColor: "#888888",
+        bannerTop: "🖤 DARK NIGHT 🖤",
+        bannerBottom: "🦇 MOONLIGHT 🦇",
+        ornamentTL: "🦇",
+        ornamentTR: "🌙",
+        ornamentBL: "🖤",
+        ornamentBR: "🦇",
+        magicEmoji: "🦇",
+        isCustom: false,
+        previewImage: null,
+      },
+      {
+        id: "default-pink",
+        name: "Pink",
+        color: "#ffc0cb",
+        frameColor: "#ff4fa3",
+        accentColor: "#ff1493",
+        bannerTop: "🧸 ☁️ LOVE ☁️ 🧸",
+        bannerBottom: "☁️ 💖 SWEET DAY 💖 ☁️",
+        ornamentTL: "☁️",
+        ornamentTR: "🧸",
+        ornamentBL: "💖",
+        ornamentBR: "☁️",
+        magicEmoji: "🦋",
+        isCustom: false,
+        previewImage: null,
+      },
+    ];
+
+    const savedCustom = localStorage.getItem("photobooth_custom_templates");
+    let customTemplates = [];
+    if (savedCustom) {
+      try {
+        customTemplates = JSON.parse(savedCustom);
+      } catch (e) {}
+    }
+    setTemplates([...defaultTemplates, ...customTemplates]);
+  }, []);
+
+  // Simpan template kustom ke localStorage
+  useEffect(() => {
+    const customTemplates = templates.filter((t) => t.isCustom);
+    localStorage.setItem("photobooth_custom_templates", JSON.stringify(customTemplates));
+  }, [templates]);
 
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   const createParticles = (type, width, height) => {
     const particles = [];
-
     for (let i = 0; i < 15; i++) {
       particles.push({
         x: Math.random() * width,
@@ -51,7 +144,6 @@ function App() {
         emoji: type,
       });
     }
-
     return particles;
   };
 
@@ -77,41 +169,10 @@ function App() {
     hat.src = "/cowboy-hat.png";
   }, []);
 
-  useEffect(() => {
-    if (!selectedTemplate || !magicEffect) {
-      particlesRef.current = [];
-      return;
-    }
-
-    // jangan bikin ulang kalau sudah ada
-    // if (particlesRef.current.length > 0) return;
-
-    let emoji = "✨";
-
-    if (selectedTemplate.name === "Pink") {
-      emoji = "🦋";
-    }
-
-    if (selectedTemplate.name === "Black") {
-      emoji = "🦇";
-    }
-
-    if (selectedTemplate.name === "White") {
-      emoji = "☁️";
-    }
-
-    particlesRef.current = createParticles(emoji, 700, 700);
-  }, [selectedTemplate, magicEffect]);
-
-  // Fungsi untuk menghaluskan bounding box
   const getSmoothedFaceBox = (newBox) => {
     const historySize = 5;
-    // tambahkan box baru ke history
     faceBoxHistory.current.push(newBox);
-    if (faceBoxHistory.current.length > historySize) {
-      faceBoxHistory.current.shift();
-    }
-    // hitung rata-rata
+    if (faceBoxHistory.current.length > historySize) faceBoxHistory.current.shift();
     const sum = faceBoxHistory.current.reduce(
       (acc, box) => {
         acc.x += box.x;
@@ -135,92 +196,79 @@ function App() {
     if (!webcamRef.current || !webcamRef.current.video) return;
     const video = webcamRef.current.video;
     if (video.readyState !== 4) return;
-
     const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions());
     if (detection) {
       const rawBox = detection.box;
       const smoothedBox = getSmoothedFaceBox(rawBox);
       faceBoxRef.current = smoothedBox;
     }
-    // Jika tidak ada deteksi, biarkan faceBoxRef.current tetap (tidak diubah)
   };
 
   const cowboyHat = new Image();
   cowboyHat.src = "/cowboy-hat.png";
 
-  const drawFrameOnPhoto = (ctx, width, height, templateName) => {
+  const drawFrameOnPhoto = (ctx, width, height, template) => {
     ctx.clearRect(0, 0, width, height);
-    const isDark = templateName === "Black";
-    const frameColor = templateName === "Pink" ? "#ff4fa3" : templateName === "Black" ? "#ffffff" : "#d9d9d9";
-    const accentColor = templateName === "Pink" ? "#ff1493" : templateName === "Black" ? "#888888" : "#bbbbbb";
+    const isDark = template.color === "#000000";
+    const frameColor = template.frameColor;
+    const accentColor = template.accentColor;
 
     ctx.save();
 
-    // reset transform
+    // Gambar video flip horizontal
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-
-    // flip horizontal supaya balik ke normal
     ctx.translate(width, 0);
     ctx.scale(-1, 1);
-
     ctx.drawImage(webcamRef.current.video, 0, 0, width, height);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-    ctx.restore();
-
-    // MAGIC PARTICLES
+    // Magic particles dengan emoji dari template
     if (magicEffect) {
+      if (particlesRef.current.length === 0 || lastCanvasSize.current.width !== width || lastCanvasSize.current.height !== height) {
+        const emoji = template.magicEmoji || "✨";
+        particlesRef.current = createParticles(emoji, width, height);
+        lastCanvasSize.current = { width, height };
+      }
       particlesRef.current.forEach((p) => {
         p.x += p.speedX;
         p.y += p.speedY;
         p.rotation += p.rotationSpeed;
-
-        // reset kalau keluar layar
         if (p.y > height + 50) {
           p.y = -50;
           p.x = Math.random() * width;
         }
-
         if (p.x > width + 50) p.x = -50;
         if (p.x < -50) p.x = width + 50;
-
         ctx.save();
-
         ctx.translate(p.x, p.y);
         ctx.rotate((p.rotation * Math.PI) / 180);
-
         ctx.font = `${p.size}px Arial`;
         ctx.globalAlpha = 0.8;
-
         ctx.fillText(p.emoji, 0, 0);
-
         ctx.restore();
       });
-
       ctx.globalAlpha = 1;
+    } else {
+      particlesRef.current = [];
+      lastCanvasSize.current = { width: 0, height: 0 };
     }
 
-    // Gambar efek topi koboy dengan posisi yang stabil (hasil smoothing)
+    // Cowboy hat effect
     if (selectedEffectRef.current === "cowboy" && modelsLoaded && hatLoaded && faceBoxRef.current) {
       const faceBox = faceBoxRef.current;
       const faceWidth = faceBox.width;
       const hatWidth = faceWidth * 1.5;
       const hatHeight = hatWidth * (hatDimensions.height / hatDimensions.width);
       const hatX = width - (faceBox.x + faceBox.width / 2) - hatWidth / 2;
-
-      // overlapFactor: 0.15 agar topi tidak terlalu nutupi dahi
       const overlapFactor = 0.1;
       const hatY = faceBox.y - hatHeight * (1 - overlapFactor);
-
       ctx.drawImage(cowboyHat, hatX, hatY, hatWidth, hatHeight);
     }
 
-    // Borders, banner, ornaments (sama seperti kode asli)
-    // ... (kode dari sini sampai akhir sama persis)
-
+    // Borders
     ctx.strokeStyle = frameColor;
     ctx.lineWidth = 20;
     ctx.strokeRect(10, 10, width - 20, height - 20);
-
     ctx.strokeStyle = accentColor;
     ctx.lineWidth = 4;
     ctx.setLineDash([10, 10]);
@@ -233,56 +281,38 @@ function App() {
     ctx.font = 'bold 42px "Arial"';
     ctx.textAlign = "center";
     ctx.fillStyle = isDark ? "#000000" : "#ffffff";
-
-    if (templateName === "Pink") ctx.fillText("🧸 ☁️ LOVE ☁️ 🧸", width / 2, 52);
-    if (templateName === "Black") ctx.fillText("🖤 DARK NIGHT 🖤", width / 2, 52);
-    if (templateName === "White") ctx.fillText("☁️ PURE DREAM ☁️", width / 2, 52);
+    ctx.fillText(template.bannerTop, width / 2, 52);
 
     // Bottom banner
     ctx.fillStyle = frameColor;
     ctx.fillRect(0, height - 80, width, 80);
     ctx.font = 'bold 34px "Arial"';
     ctx.fillStyle = isDark ? "#000000" : "#ffffff";
-    if (templateName === "Pink") ctx.fillText("☁️ 💖 SWEET DAY 💖 ☁️", width / 2, height - 28);
-    if (templateName === "Black") ctx.fillText("🦇 MOONLIGHT 🦇", width / 2, height - 28);
-    if (templateName === "White") ctx.fillText("☀️ CLOUDY SKY ☀️", width / 2, height - 28);
+    ctx.fillText(template.bannerBottom, width / 2, height - 28);
 
     // Side ornaments
     ctx.font = '42px "Segoe UI Emoji"';
-    if (templateName === "Pink") {
-      ctx.fillText("☁️", 35, 170);
-      ctx.fillText("🧸", width - 45, 250);
-      ctx.fillText("💖", 35, height - 220);
-      ctx.fillText("☁️", width - 45, height - 140);
-    }
-    if (templateName === "Black") {
-      ctx.fillText("🦇", 35, 170);
-      ctx.fillText("🌙", width - 45, 250);
-      ctx.fillText("🖤", 35, height - 220);
-      ctx.fillText("🦇", width - 45, height - 140);
-    }
-    if (templateName === "White") {
-      ctx.fillText("☁️", 35, 170);
-      ctx.fillText("☀️", width - 45, 250);
-      ctx.fillText("🤍", 35, height - 220);
-      ctx.fillText("☁️", width - 45, height - 140);
-    }
+    ctx.fillText(template.ornamentTL, 35, 170);
+    ctx.fillText(template.ornamentTR, width - 45, 250);
+    ctx.fillText(template.ornamentBL, 35, height - 220);
+    ctx.fillText(template.ornamentBR, width - 45, height - 140);
 
     ctx.restore();
   };
 
-  // LIVE PREVIEW – frekuensi deteksi lebih stabil (setiap 3 frame masih ok)
+  // Live preview effect
   useEffect(() => {
     if (!selectedTemplate || !webcamRef.current || !canvasRef.current) return;
     const video = webcamRef.current.video;
     if (!video) return;
-
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     let lastWidth = 0,
       lastHeight = 0;
+    let isActive = true; // flag untuk menghentikan loop saat cleanup
 
-    const draw = async () => {
+    const draw = () => {
+      if (!isActive) return;
       if (video.readyState === video.HAVE_ENOUGH_DATA) {
         const { videoWidth, videoHeight } = video;
         if (videoWidth !== lastWidth || videoHeight !== lastHeight) {
@@ -291,19 +321,24 @@ function App() {
           lastWidth = videoWidth;
           lastHeight = videoHeight;
         }
-
+        // Panggil detectFace tanpa await, gunakan then() agar tidak memblokir
         if (modelsLoaded && frameCounter.current % 3 === 0) {
-          await detectFace();
+          detectFace().catch(console.error);
         }
         frameCounter.current++;
-
-        drawFrameOnPhoto(ctx, canvas.width, canvas.height, selectedTemplate.name);
+        drawFrameOnPhoto(ctx, canvas.width, canvas.height, selectedTemplate);
       }
-      animationRef.current = requestAnimationFrame(draw);
+      if (isActive) {
+        animationRef.current = requestAnimationFrame(draw);
+      }
     };
 
     draw();
-    return () => cancelAnimationFrame(animationRef.current);
+
+    return () => {
+      isActive = false;
+      cancelAnimationFrame(animationRef.current);
+    };
   }, [selectedTemplate, modelsLoaded, hatLoaded, hatDimensions, magicEffect]);
 
   const captureWithFrame = () => {
@@ -323,7 +358,6 @@ function App() {
     setStrip(null);
     setIsCapturing(true);
     let capturedPhotos = [];
-
     for (let i = 0; i < 4; i++) {
       for (let c = 3; c > 0; c--) {
         setCountdown(c);
@@ -348,12 +382,10 @@ function App() {
     const photoWidth = 350;
     const photoHeight = 250;
     const gap = 25;
-
     canvas.width = width;
     canvas.height = (photoHeight + gap) * 4 + 180;
     ctx.fillStyle = selectedTemplate.color;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-
     for (let i = 0; i < capturedPhotos.length; i++) {
       const img = new Image();
       img.src = capturedPhotos[i];
@@ -365,6 +397,57 @@ function App() {
       ctx.shadowBlur = 0;
     }
     setStrip(canvas.toDataURL("image/png"));
+  };
+
+  const addCustomTemplate = () => {
+    if (!newTemplate.name.trim()) {
+      alert("Nama template harus diisi!");
+      return;
+    }
+    const customId = "custom-" + Date.now();
+    const templateToAdd = {
+      id: customId,
+      name: newTemplate.name,
+      color: newTemplate.color,
+      frameColor: newTemplate.frameColor,
+      accentColor: newTemplate.accentColor,
+      bannerTop: newTemplate.bannerTop,
+      bannerBottom: newTemplate.bannerBottom,
+      ornamentTL: newTemplate.ornamentTL || "✨",
+      ornamentTR: newTemplate.ornamentTR || "✨",
+      ornamentBL: newTemplate.ornamentBL || "✨",
+      ornamentBR: newTemplate.ornamentBR || "✨",
+      magicEmoji: newTemplate.magicEmoji || "✨",
+      isCustom: true,
+      previewImage: newTemplate.previewImage,
+    };
+    setTemplates((prev) => [...prev, templateToAdd]);
+    setShowTemplateModal(false);
+    setNewTemplate({
+      name: "",
+      color: "#ffffff",
+      frameColor: "#d9d9d9",
+      accentColor: "#bbbbbb",
+      bannerTop: "CUSTOM TEMPLATE",
+      bannerBottom: "CREATE YOUR OWN",
+      ornamentTL: "✨",
+      ornamentTR: "✨",
+      ornamentBL: "✨",
+      ornamentBR: "✨",
+      magicEmoji: "✨",
+      previewImage: null,
+    });
+  };
+
+  const handlePreviewImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setNewTemplate({ ...newTemplate, previewImage: reader.result });
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   // Template selection page
@@ -380,98 +463,102 @@ function App() {
                 className="w-[260px] rounded-[35px] p-5 shadow-2xl border-[6px]"
                 style={{
                   background: template.color,
-                  borderColor: template.name === "Pink" ? "#ff4fa3" : template.name === "Black" ? "#ffffff" : "#d9d9d9",
+                  borderColor: template.frameColor,
                 }}
               >
                 <div className="flex flex-col gap-4">
                   {[1, 2, 3, 4].map((i) => (
-                    <div
-                      key={i}
-                      className="relative h-[120px] overflow-hidden rounded-2xl"
-                      style={{
-                        border: template.name === "Pink" ? "4px solid #ff1493" : template.name === "Black" ? "4px solid #ffffff" : "4px solid #d9d9d9",
-                      }}
-                    >
-                      {/* FOTO */}
-                      <img src={`/preview-${template.name.toLowerCase()}.jpg`} alt="" className="w-full h-full object-cover" />
-
-                      {/* OVERLAY BORDER */}
-                      <div
-                        className="absolute inset-2 border-2 border-dashed rounded-xl"
-                        style={{
-                          borderColor: template.name === "Pink" ? "#ff1493" : template.name === "Black" ? "#888888" : "#bbbbbb",
-                        }}
-                      />
-
-                      {/* TOP BANNER */}
-                      <div
-                        className="absolute top-0 left-0 w-full py-1 text-center text-[11px] font-bold"
-                        style={{
-                          background: template.name === "Pink" ? "#ff4fa3" : template.name === "Black" ? "#ffffff" : "#d9d9d9",
-
-                          color: template.name === "Black" ? "#000000" : "#ffffff",
-                        }}
-                      >
-                        {template.name === "Pink" && "🧸 ☁️ LOVE ☁️ 🧸"}
-
-                        {template.name === "Black" && "🖤 DARK NIGHT 🖤"}
-
-                        {template.name === "White" && "☁️ PURE DREAM ☁️"}
+                    <div key={i} className="relative h-[120px] overflow-hidden rounded-2xl" style={{ border: `4px solid ${template.accentColor}` }}>
+                      {template.previewImage ? <img src={template.previewImage} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full bg-gray-300 flex items-center justify-center text-gray-500">Preview</div>}
+                      <div className="absolute inset-2 border-2 border-dashed rounded-xl" style={{ borderColor: template.accentColor }} />
+                      <div className="absolute top-0 left-0 w-full py-1 text-center text-[11px] font-bold" style={{ background: template.frameColor, color: template.color === "#000000" ? "black" : "white" }}>
+                        {template.bannerTop.length > 20 ? template.bannerTop.slice(0, 20) + ".." : template.bannerTop}
                       </div>
-
-                      {/* BOTTOM BANNER */}
-                      <div
-                        className="absolute bottom-0 left-0 w-full py-1 text-center text-[11px] font-bold"
-                        style={{
-                          background: template.name === "Pink" ? "#ff4fa3" : template.name === "Black" ? "#ffffff" : "#d9d9d9",
-
-                          color: template.name === "Black" ? "#000000" : "#ffffff",
-                        }}
-                      >
-                        {template.name === "Pink" && "☁️ 💖 SWEET DAY 💖 ☁️"}
-
-                        {template.name === "Black" && "🦇 MOONLIGHT 🦇"}
-
-                        {template.name === "White" && "☀️ CLOUDY SKY ☀️"}
+                      <div className="absolute bottom-0 left-0 w-full py-1 text-center text-[11px] font-bold" style={{ background: template.frameColor, color: template.color === "#000000" ? "black" : "white" }}>
+                        {template.bannerBottom.length > 20 ? template.bannerBottom.slice(0, 20) + ".." : template.bannerBottom}
                       </div>
-
-                      {/* ORNAMENT */}
-                      <div className="absolute left-1 top-8 text-sm">
-                        {template.name === "Pink" && "☁️"}
-                        {template.name === "Black" && "🦇"}
-                        {template.name === "White" && "☁️"}
-                      </div>
-
-                      <div className="absolute right-1 top-12 text-sm">
-                        {template.name === "Pink" && "🧸"}
-                        {template.name === "Black" && "🌙"}
-                        {template.name === "White" && "☀️"}
-                      </div>
-
-                      <div className="absolute left-1 bottom-8 text-sm">
-                        {template.name === "Pink" && "💖"}
-                        {template.name === "Black" && "🖤"}
-                        {template.name === "White" && "🤍"}
-                      </div>
-
-                      <div className="absolute right-1 bottom-8 text-sm">
-                        {template.name === "Pink" && "☁️"}
-                        {template.name === "Black" && "🦇"}
-                        {template.name === "White" && "☁️"}
-                      </div>
+                      <div className="absolute left-1 top-8 text-sm">{template.ornamentTL}</div>
+                      <div className="absolute right-1 top-12 text-sm">{template.ornamentTR}</div>
+                      <div className="absolute left-1 bottom-8 text-sm">{template.ornamentBL}</div>
+                      <div className="absolute right-1 bottom-8 text-sm">{template.ornamentBR}</div>
                     </div>
                   ))}
                 </div>
-
                 <div className="mt-5 text-center">
-                  <h2 className={`text-2xl font-bold ${template.name === "Black" ? "text-white" : "text-black"}`}>{template.name}</h2>
-
-                  <p className={`text-sm mt-1 ${template.name === "Black" ? "text-zinc-300" : "text-zinc-600"}`}>Click to use ✨</p>
+                  <h2 className={`text-2xl font-bold ${template.color === "#000000" ? "text-white" : "text-black"}`}>{template.name}</h2>
+                  <p className={`text-sm mt-1 ${template.color === "#000000" ? "text-zinc-300" : "text-zinc-600"}`}>Magic: {template.magicEmoji || "✨"}</p>
                 </div>
               </div>
             </div>
           ))}
+          {/* Tombol tambah template */}
+          <div onClick={() => setShowTemplateModal(true)} className="cursor-pointer hover:scale-105 duration-300">
+            <div className="w-[260px] rounded-[35px] p-5 shadow-2xl border-[6px] border-dashed border-zinc-500 bg-zinc-800 flex flex-col items-center justify-center h-full min-h-[400px]">
+              <div className="text-6xl mb-3">➕</div>
+              <h2 className="text-xl font-bold">Buat Template</h2>
+              <p className="text-sm text-zinc-400 text-center mt-2">Tambahkan template kustom sendiri</p>
+            </div>
+          </div>
         </div>
+
+        {/* Modal Tambah Template */}
+        {showTemplateModal && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+            <div className="bg-white text-black rounded-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
+              <h2 className="text-2xl font-bold mb-4">Tambah Template Kustom</h2>
+              <div className="space-y-3">
+                <input type="text" placeholder="Nama Template" value={newTemplate.name} onChange={(e) => setNewTemplate({ ...newTemplate, name: e.target.value })} className="w-full border rounded-xl p-2" />
+                <div className="flex gap-2">
+                  <div>
+                    <label className="block text-sm">Warna Latar</label>
+                    <input type="color" value={newTemplate.color} onChange={(e) => setNewTemplate({ ...newTemplate, color: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="block text-sm">Warna Bingkai</label>
+                    <input type="color" value={newTemplate.frameColor} onChange={(e) => setNewTemplate({ ...newTemplate, frameColor: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="block text-sm">Warna Aksen</label>
+                    <input type="color" value={newTemplate.accentColor} onChange={(e) => setNewTemplate({ ...newTemplate, accentColor: e.target.value })} />
+                  </div>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Banner Atas (contoh: ☁️ PURE DREAM ☁️)"
+                  value={newTemplate.bannerTop}
+                  onChange={(e) => setNewTemplate({ ...newTemplate, bannerTop: e.target.value })}
+                  className="w-full border rounded-xl p-2"
+                />
+                <input type="text" placeholder="Banner Bawah" value={newTemplate.bannerBottom} onChange={(e) => setNewTemplate({ ...newTemplate, bannerBottom: e.target.value })} className="w-full border rounded-xl p-2" />
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="text" placeholder="Ornamen Kiri Atas" value={newTemplate.ornamentTL} onChange={(e) => setNewTemplate({ ...newTemplate, ornamentTL: e.target.value })} className="border rounded-xl p-2" />
+                  <input type="text" placeholder="Ornamen Kanan Atas" value={newTemplate.ornamentTR} onChange={(e) => setNewTemplate({ ...newTemplate, ornamentTR: e.target.value })} className="border rounded-xl p-2" />
+                  <input type="text" placeholder="Ornamen Kiri Bawah" value={newTemplate.ornamentBL} onChange={(e) => setNewTemplate({ ...newTemplate, ornamentBL: e.target.value })} className="border rounded-xl p-2" />
+                  <input type="text" placeholder="Ornamen Kanan Bawah" value={newTemplate.ornamentBR} onChange={(e) => setNewTemplate({ ...newTemplate, ornamentBR: e.target.value })} className="border rounded-xl p-2" />
+                </div>
+                {/* Input custom magic emoji */}
+                <div>
+                  <label className="block text-sm">Emoji Efek Magic ✨</label>
+                  <input type="text" placeholder="Contoh: 🦋, 🦇, ☁️, ❄️, 🌟" value={newTemplate.magicEmoji} onChange={(e) => setNewTemplate({ ...newTemplate, magicEmoji: e.target.value })} className="w-full border rounded-xl p-2" />
+                  <p className="text-xs text-gray-500 mt-1">Emoji yang akan muncul saat efek Magic aktif</p>
+                </div>
+                <div>
+                  <label className="block text-sm">Gambar Preview (opsional)</label>
+                  <input type="file" accept="image/*" onChange={handlePreviewImageUpload} className="w-full" />
+                  {newTemplate.previewImage && <img src={newTemplate.previewImage} alt="preview" className="mt-2 w-32 h-32 object-cover rounded" />}
+                </div>
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button onClick={addCustomTemplate} className="bg-pink-500 text-white px-4 py-2 rounded-xl flex-1">
+                  Simpan
+                </button>
+                <button onClick={() => setShowTemplateModal(false)} className="bg-gray-300 px-4 py-2 rounded-xl flex-1">
+                  Batal
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -481,31 +568,16 @@ function App() {
   return (
     <div className="min-h-screen flex flex-col items-center px-6 py-10" style={{ background: selectedTemplate.color }}>
       <h1 className={`text-5xl font-bold mb-8 ${isDark ? "text-white" : "text-black"}`}>Photobooth 📸</h1>
-
       {!modelsLoaded && <div className="text-center mb-4 text-yellow-500 font-bold">Loading face detection...</div>}
-
-      <Webcam
-        ref={webcamRef}
-        audio={false}
-        style={{
-          position: "fixed",
-          top: "-100vh",
-          left: "-100vw",
-          opacity: 0,
-          pointerEvents: "none",
-        }}
-      />
-
+      <Webcam ref={webcamRef} audio={false} style={{ position: "fixed", top: "-100vh", left: "-100vw", opacity: 0, pointerEvents: "none" }} />
       <div className="relative bg-black p-4 rounded-[30px] shadow-2xl">
         <canvas ref={canvasRef} className="rounded-[20px] w-[700px] max-w-full" />
-
         {countdown && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className={`text-8xl font-bold drop-shadow-2xl ${isDark ? "text-white" : "text-white"}`}>{countdown}</div>
+            <div className="text-8xl font-bold drop-shadow-2xl text-white">{countdown}</div>
           </div>
         )}
       </div>
-
       <div className="flex gap-3 mt-6 flex-wrap justify-center">
         <button onClick={() => setSelectedEffect("none")} className={`px-5 py-2 rounded-xl font-semibold duration-300 ${selectedEffect === "none" ? "bg-pink-500 text-white" : "bg-white text-black"}`}>
           None
@@ -517,11 +589,9 @@ function App() {
           ✨ Magic
         </button>
       </div>
-
       <button onClick={startCapture} disabled={isCapturing} className={`mt-6 px-8 py-4 rounded-2xl text-xl hover:scale-105 duration-300 disabled:opacity-50 ${isDark ? "bg-white text-black" : "bg-black text-white"}`}>
         {isCapturing ? "Sedang Foto..." : "Start Photobooth"}
       </button>
-
       <button
         onClick={() => {
           setSelectedTemplate(null);
@@ -535,13 +605,11 @@ function App() {
       >
         Ganti Template
       </button>
-
       <div className="flex flex-wrap gap-4 justify-center mt-10">
         {photos.map((photo, index) => (
           <img key={index} src={photo} alt="" className="w-40 rounded-2xl shadow-xl" />
         ))}
       </div>
-
       {strip && (
         <div className="mt-14 flex flex-col items-center">
           <h2 className={`text-3xl font-bold mb-6 ${isDark ? "text-white" : "text-black"}`}>Hasil Photostrip</h2>
