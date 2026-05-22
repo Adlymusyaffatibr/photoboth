@@ -20,6 +20,9 @@ function App() {
   const [countdown, setCountdown] = useState(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [strip, setStrip] = useState(null);
+  const [currentPhoto, setCurrentPhoto] = useState(null);
+  const [waitingRetake, setWaitingRetake] = useState(false);
+  const retakeResolver = useRef(null);
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const [hatLoaded, setHatLoaded] = useState(false);
   const [hatDimensions, setHatDimensions] = useState({ width: 340, height: 180 });
@@ -36,17 +39,20 @@ function App() {
     ornamentTR: "✨",
     ornamentBL: "✨",
     ornamentBR: "✨",
+    ornamentTLImage: null, // base64 atau null
+    ornamentTRImage: null,
+    ornamentBLImage: null,
+    ornamentBRImage: null,
     magicEmoji: "✨",
     previewImage: null,
   });
 
-  // === PERBAIKAN: Reset partikel saat template berganti ===
+  // Reset partikel saat template berganti
   useEffect(() => {
     particlesRef.current = [];
     lastCanvasSize.current = { width: 0, height: 0 };
   }, [selectedTemplate]);
 
-  // === PERBAIKAN: Reset partikel saat magic effect diaktifkan (opsional) ===
   useEffect(() => {
     if (magicEffect) {
       particlesRef.current = [];
@@ -54,12 +60,11 @@ function App() {
     }
   }, [magicEffect]);
 
-  // Sync ref dengan state selectedEffect
   useEffect(() => {
     selectedEffectRef.current = selectedEffect;
   }, [selectedEffect]);
 
-  // Load template default & kustom dari localStorage
+  // Load template default & custom dari localStorage
   useEffect(() => {
     const defaultTemplates = [
       {
@@ -74,6 +79,10 @@ function App() {
         ornamentTR: "☀️",
         ornamentBL: "🤍",
         ornamentBR: "☁️",
+        ornamentTLImage: null,
+        ornamentTRImage: null,
+        ornamentBLImage: null,
+        ornamentBRImage: null,
         magicEmoji: "☁️",
         isCustom: false,
         previewImage: null,
@@ -90,6 +99,10 @@ function App() {
         ornamentTR: "🌙",
         ornamentBL: "🖤",
         ornamentBR: "🦇",
+        ornamentTLImage: null,
+        ornamentTRImage: null,
+        ornamentBLImage: null,
+        ornamentBRImage: null,
         magicEmoji: "🦇",
         isCustom: false,
         previewImage: null,
@@ -106,6 +119,10 @@ function App() {
         ornamentTR: "🧸",
         ornamentBL: "💖",
         ornamentBR: "☁️",
+        ornamentTLImage: null,
+        ornamentTRImage: null,
+        ornamentBLImage: null,
+        ornamentBRImage: null,
         magicEmoji: "🦋",
         isCustom: false,
         previewImage: null,
@@ -122,13 +139,19 @@ function App() {
     setTemplates([...defaultTemplates, ...customTemplates]);
   }, []);
 
-  // Simpan template kustom ke localStorage
+  // Simpan template custom ke localStorage
   useEffect(() => {
     const customTemplates = templates.filter((t) => t.isCustom);
     localStorage.setItem("photobooth_custom_templates", JSON.stringify(customTemplates));
   }, [templates]);
 
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const waitForRetakeDecision = () => {
+    return new Promise((resolve) => {
+      retakeResolver.current = resolve;
+    });
+  };
 
   const createParticles = (type, width, height) => {
     const particles = [];
@@ -207,6 +230,34 @@ function App() {
   const cowboyHat = new Image();
   cowboyHat.src = "/cowboy-hat.png";
 
+  // Fungsi helper untuk menggambar ornament (teks atau gambar)
+  const drawOrnament = (ctx, x, y, textOrEmoji, imageBase64, defaultSize = 42) => {
+    if (imageBase64) {
+      const img = new Image();
+      img.src = imageBase64;
+      if (img.complete) {
+        // Gambar dengan lebar tetap 70px, tinggi proporsional
+        const targetWidth = 70;
+        const ratio = img.height / img.width;
+        const targetHeight = targetWidth * ratio;
+        ctx.drawImage(img, x - targetWidth / 2, y - targetHeight / 2, targetWidth, targetHeight);
+      } else {
+        img.onload = () => {
+          const targetWidth = 70;
+          const ratio = img.height / img.width;
+          const targetHeight = targetWidth * ratio;
+          ctx.drawImage(img, x - targetWidth / 2, y - targetHeight / 2, targetWidth, targetHeight);
+        };
+        // Fallback: jika belum load, tulis teks sementara
+        ctx.font = `${defaultSize}px "Segoe UI Emoji"`;
+        ctx.fillText(textOrEmoji, x - defaultSize / 2, y + defaultSize / 3);
+      }
+    } else {
+      ctx.font = `${defaultSize}px "Segoe UI Emoji"`;
+      ctx.fillText(textOrEmoji, x - defaultSize / 2, y + defaultSize / 3);
+    }
+  };
+
   const drawFrameOnPhoto = (ctx, width, height, template) => {
     ctx.clearRect(0, 0, width, height);
     const isDark = template.color === "#000000";
@@ -222,7 +273,7 @@ function App() {
     ctx.drawImage(webcamRef.current.video, 0, 0, width, height);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-    // Magic particles dengan emoji dari template
+    // Magic particles
     if (magicEffect) {
       if (particlesRef.current.length === 0 || lastCanvasSize.current.width !== width || lastCanvasSize.current.height !== height) {
         const emoji = template.magicEmoji || "✨";
@@ -290,17 +341,19 @@ function App() {
     ctx.fillStyle = isDark ? "#000000" : "#ffffff";
     ctx.fillText(template.bannerBottom, width / 2, height - 28);
 
-    // Side ornaments
-    ctx.font = '42px "Segoe UI Emoji"';
-    ctx.fillText(template.ornamentTL, 35, 170);
-    ctx.fillText(template.ornamentTR, width - 45, 250);
-    ctx.fillText(template.ornamentBL, 35, height - 220);
-    ctx.fillText(template.ornamentBR, width - 45, height - 140);
+    // Side ornaments (mendukung gambar custom)
+    ctx.textAlign = "center";
+    ctx.fillStyle = isDark ? "#000000" : "#ffffff";
+    // Posisi masing-masing ornament: (x, y) sesuai koordinat asli
+    drawOrnament(ctx, 55, 170, template.ornamentTL, template.ornamentTLImage, 42);
+    drawOrnament(ctx, width - 55, 250, template.ornamentTR, template.ornamentTRImage, 42);
+    drawOrnament(ctx, 55, height - 220, template.ornamentBL, template.ornamentBLImage, 42);
+    drawOrnament(ctx, width - 55, height - 140, template.ornamentBR, template.ornamentBRImage, 42);
 
     ctx.restore();
   };
 
-  // Live preview effect
+  // Live preview
   useEffect(() => {
     if (!selectedTemplate || !webcamRef.current || !canvasRef.current) return;
     const video = webcamRef.current.video;
@@ -309,7 +362,7 @@ function App() {
     const ctx = canvas.getContext("2d");
     let lastWidth = 0,
       lastHeight = 0;
-    let isActive = true; // flag untuk menghentikan loop saat cleanup
+    let isActive = true;
 
     const draw = () => {
       if (!isActive) return;
@@ -321,7 +374,6 @@ function App() {
           lastWidth = videoWidth;
           lastHeight = videoHeight;
         }
-        // Panggil detectFace tanpa await, gunakan then() agar tidak memblokir
         if (modelsLoaded && frameCounter.current % 3 === 0) {
           detectFace().catch(console.error);
         }
@@ -354,24 +406,50 @@ function App() {
 
   const startCapture = async () => {
     if (isCapturing) return;
+
     setPhotos([]);
     setStrip(null);
     setIsCapturing(true);
+
     let capturedPhotos = [];
+
     for (let i = 0; i < 4; i++) {
-      for (let c = 3; c > 0; c--) {
-        setCountdown(c);
-        await wait(1000);
+      let accepted = false;
+
+      while (!accepted) {
+        // countdown
+        for (let c = 3; c > 0; c--) {
+          setCountdown(c);
+          await wait(1000);
+        }
+
+        setCountdown("📸");
+        await wait(700);
+
+        const image = captureWithFrame();
+
+        setCountdown(null);
+
+        // tampilkan preview
+        setCurrentPhoto(image);
+        setWaitingRetake(true);
+
+        // tunggu keputusan user
+        const decision = await waitForRetakeDecision();
+
+        if (decision === "accept") {
+          capturedPhotos.push(image);
+          setPhotos([...capturedPhotos]);
+          accepted = true;
+        }
       }
-      setCountdown("📸");
-      await wait(700);
-      const image = captureWithFrame();
-      capturedPhotos.push(image);
-      setPhotos([...capturedPhotos]);
-      await wait(800);
     }
-    setCountdown(null);
+
+    setCurrentPhoto(null);
+    setWaitingRetake(false);
+
     await generateStrip(capturedPhotos);
+
     setIsCapturing(false);
   };
 
@@ -399,6 +477,17 @@ function App() {
     setStrip(canvas.toDataURL("image/png"));
   };
 
+  // Handler upload gambar ornament
+  const handleOrnamentImageUpload = (position, file) => {
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setNewTemplate((prev) => ({ ...prev, [position]: reader.result }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const addCustomTemplate = () => {
     if (!newTemplate.name.trim()) {
       alert("Nama template harus diisi!");
@@ -417,6 +506,10 @@ function App() {
       ornamentTR: newTemplate.ornamentTR || "✨",
       ornamentBL: newTemplate.ornamentBL || "✨",
       ornamentBR: newTemplate.ornamentBR || "✨",
+      ornamentTLImage: newTemplate.ornamentTLImage || null,
+      ornamentTRImage: newTemplate.ornamentTRImage || null,
+      ornamentBLImage: newTemplate.ornamentBLImage || null,
+      ornamentBRImage: newTemplate.ornamentBRImage || null,
       magicEmoji: newTemplate.magicEmoji || "✨",
       isCustom: true,
       previewImage: newTemplate.previewImage,
@@ -434,6 +527,10 @@ function App() {
       ornamentTR: "✨",
       ornamentBL: "✨",
       ornamentBR: "✨",
+      ornamentTLImage: null,
+      ornamentTRImage: null,
+      ornamentBLImage: null,
+      ornamentBRImage: null,
       magicEmoji: "✨",
       previewImage: null,
     });
@@ -501,7 +598,7 @@ function App() {
           </div>
         </div>
 
-        {/* Modal Tambah Template */}
+        {/* Modal Tambah Template dengan upload gambar ornament */}
         {showTemplateModal && (
           <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
             <div className="bg-white text-black rounded-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
@@ -530,18 +627,49 @@ function App() {
                   className="w-full border rounded-xl p-2"
                 />
                 <input type="text" placeholder="Banner Bawah" value={newTemplate.bannerBottom} onChange={(e) => setNewTemplate({ ...newTemplate, bannerBottom: e.target.value })} className="w-full border rounded-xl p-2" />
+
+                {/* Ornamen teks */}
                 <div className="grid grid-cols-2 gap-2">
-                  <input type="text" placeholder="Ornamen Kiri Atas" value={newTemplate.ornamentTL} onChange={(e) => setNewTemplate({ ...newTemplate, ornamentTL: e.target.value })} className="border rounded-xl p-2" />
-                  <input type="text" placeholder="Ornamen Kanan Atas" value={newTemplate.ornamentTR} onChange={(e) => setNewTemplate({ ...newTemplate, ornamentTR: e.target.value })} className="border rounded-xl p-2" />
-                  <input type="text" placeholder="Ornamen Kiri Bawah" value={newTemplate.ornamentBL} onChange={(e) => setNewTemplate({ ...newTemplate, ornamentBL: e.target.value })} className="border rounded-xl p-2" />
-                  <input type="text" placeholder="Ornamen Kanan Bawah" value={newTemplate.ornamentBR} onChange={(e) => setNewTemplate({ ...newTemplate, ornamentBR: e.target.value })} className="border rounded-xl p-2" />
+                  <input type="text" placeholder="Ornamen Kiri Atas (teks)" value={newTemplate.ornamentTL} onChange={(e) => setNewTemplate({ ...newTemplate, ornamentTL: e.target.value })} className="border rounded-xl p-2" />
+                  <input type="text" placeholder="Ornamen Kanan Atas (teks)" value={newTemplate.ornamentTR} onChange={(e) => setNewTemplate({ ...newTemplate, ornamentTR: e.target.value })} className="border rounded-xl p-2" />
+                  <input type="text" placeholder="Ornamen Kiri Bawah (teks)" value={newTemplate.ornamentBL} onChange={(e) => setNewTemplate({ ...newTemplate, ornamentBL: e.target.value })} className="border rounded-xl p-2" />
+                  <input type="text" placeholder="Ornamen Kanan Bawah (teks)" value={newTemplate.ornamentBR} onChange={(e) => setNewTemplate({ ...newTemplate, ornamentBR: e.target.value })} className="border rounded-xl p-2" />
                 </div>
-                {/* Input custom magic emoji */}
+
+                {/* Upload gambar untuk masing-masing ornament */}
+                <div className="border-t pt-2">
+                  <p className="font-semibold text-sm mb-1">Hiasan Gambar (opsional, gantikan teks)</p>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <label>Kiri Atas:</label>
+                      <input type="file" accept="image/*" onChange={(e) => handleOrnamentImageUpload("ornamentTLImage", e.target.files[0])} />
+                      {newTemplate.ornamentTLImage && <img src={newTemplate.ornamentTLImage} alt="preview" className="w-10 h-10 object-cover mt-1 rounded" />}
+                    </div>
+                    <div>
+                      <label>Kanan Atas:</label>
+                      <input type="file" accept="image/*" onChange={(e) => handleOrnamentImageUpload("ornamentTRImage", e.target.files[0])} />
+                      {newTemplate.ornamentTRImage && <img src={newTemplate.ornamentTRImage} alt="preview" className="w-10 h-10 object-cover mt-1 rounded" />}
+                    </div>
+                    <div>
+                      <label>Kiri Bawah:</label>
+                      <input type="file" accept="image/*" onChange={(e) => handleOrnamentImageUpload("ornamentBLImage", e.target.files[0])} />
+                      {newTemplate.ornamentBLImage && <img src={newTemplate.ornamentBLImage} alt="preview" className="w-10 h-10 object-cover mt-1 rounded" />}
+                    </div>
+                    <div>
+                      <label>Kanan Bawah:</label>
+                      <input type="file" accept="image/*" onChange={(e) => handleOrnamentImageUpload("ornamentBRImage", e.target.files[0])} />
+                      {newTemplate.ornamentBRImage && <img src={newTemplate.ornamentBRImage} alt="preview" className="w-10 h-10 object-cover mt-1 rounded" />}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Magic emoji */}
                 <div>
                   <label className="block text-sm">Emoji Efek Magic ✨</label>
                   <input type="text" placeholder="Contoh: 🦋, 🦇, ☁️, ❄️, 🌟" value={newTemplate.magicEmoji} onChange={(e) => setNewTemplate({ ...newTemplate, magicEmoji: e.target.value })} className="w-full border rounded-xl p-2" />
-                  <p className="text-xs text-gray-500 mt-1">Emoji yang akan muncul saat efek Magic aktif</p>
                 </div>
+
+                {/* Preview gambar template (thumbnail) */}
                 <div>
                   <label className="block text-sm">Gambar Preview (opsional)</label>
                   <input type="file" accept="image/*" onChange={handlePreviewImageUpload} className="w-full" />
@@ -605,6 +733,35 @@ function App() {
       >
         Ganti Template
       </button>
+      {waitingRetake && currentPhoto && (
+        <div className="mt-8 flex flex-col items-center">
+          <h2 className={`text-2xl font-bold mb-4 ${isDark ? "text-white" : "text-black"}`}>Preview Foto</h2>
+
+          <img src={currentPhoto} alt="preview" className="w-64 rounded-2xl shadow-2xl" />
+
+          <div className="flex gap-4 mt-5">
+            <button
+              onClick={() => {
+                setWaitingRetake(false);
+                retakeResolver.current("retake");
+              }}
+              className="bg-red-500 text-white px-6 py-3 rounded-xl"
+            >
+              🔄 Retake
+            </button>
+
+            <button
+              onClick={() => {
+                setWaitingRetake(false);
+                retakeResolver.current("accept");
+              }}
+              className="bg-green-500 text-white px-6 py-3 rounded-xl"
+            >
+              ✅ Pakai
+            </button>
+          </div>
+        </div>
+      )}
       <div className="flex flex-wrap gap-4 justify-center mt-10">
         {photos.map((photo, index) => (
           <img key={index} src={photo} alt="" className="w-40 rounded-2xl shadow-xl" />
